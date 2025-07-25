@@ -4,7 +4,7 @@ import traceback
 
 from py_mini_racer import MiniRacer
 
-root_dir = r"C:\Users\MLChinoo\Desktop\senren_dumps\scn"
+root_dir = r"C:\Users\MLChinoo\Desktop\senren_adult_scns"
 DEBUG_SKIP = True
 
 head_scn = "001・アーサー王ver1.07.ks"
@@ -93,7 +93,7 @@ while current_scn:
         loaded_json = json.load(file)
         print(f"读取scenes：{current_scn} 成功")
         print(f"name: {loaded_json["name"]}")
-        # input()
+        input("[DEBUG]回车继续")
         assert storage == loaded_json["name"]
         print("————————————————————")
         scenes_map = {}
@@ -121,13 +121,18 @@ while current_scn:
             print(f"芦花小春共用线: {ctx.eval("sub")}")
             print()
             assert scene["label"] == target
-            assert ("selects" in scene.keys()) ^ ("nexts" in scene.keys())  # 假定texts和selects不会同时存在，texts存在时nexts也一定存在
+            # assert ("selects" in scene.keys()) ^ ("nexts" in scene.keys())  # 假定texts和selects不会同时存在，texts存在时nexts也一定存在
 
             if "selects" in scene.keys():  # 当前scene含有选择块
                 print(f"模式：select")
-                valid_indexes = []
-                for index, select in enumerate(scene["selects"]):
-                    valid_indexes.append(str(index))
+                selects_map = {}
+                for select_cached in scene["selects"]:
+                    selects_map[int(select_cached["selidx"])] = select_cached
+                valid_indexes = list(selects_map.keys())
+                valid_indexes.sort()
+                valid_indexes = tuple(str(_) for _ in valid_indexes)
+                for index in valid_indexes:
+                    select = selects_map[index := int(index)]
                     print(f"({index}) 第{index}个选项：")
                     print(f"\t[日文]{select["text"]}")
                     for index_lang, lang in enumerate(("英文", "简中", "繁中"), start=1):
