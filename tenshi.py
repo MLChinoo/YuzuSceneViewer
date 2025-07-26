@@ -5,13 +5,22 @@ import utils.parser
 
 from py_mini_racer import MiniRacer
 
+# ==========Python配置项==========
+# root_dir: 存放所有dump后的场景json的目录路径
 root_dir = r"C:\Users\MLChinoo\Desktop\tenshi_dumps\allscns"
+# scnchartdata_filepath: scnchartdata.tjs文件路径，用于分支跳转
 scnchartdata_filepath = r"C:\Users\MLChinoo\Desktop\tenshi_dumps\Extractor_Output\adult\4C9461238F67DF8F1766B263B78F44AD4F6A6E8BCBA9B7CD6A05874FEF209223.txt"
+# adult_enabled: 是否启用R18内容（建议启用）
 adult_enabled = True
-DEBUG_SKIP = True
-
+# skip_texts: 跳过显示剧情对话时的“按回车键继续”
+skip_texts = True
+# head_scn: 初始场景scn名称，以文件内name字段为准
 head_scn = "x_【共通】01.ks"
+# head_label: 初始场景标签，以文件内label字段为准
 head_label = "*part_001"
+# dialogue_language_id: 写文件时对话文本的语言序号  日文：0  英文：1  简中：2  繁中：3
+dialogue_language_id = 2
+# ===============================
 current_scn = head_scn
 
 ctx = MiniRacer()
@@ -22,12 +31,15 @@ with open(scnchartdata_filepath, mode="r", encoding="UTF-16") as file:
     ctx.eval(f"var flags = {json.dumps(scnchartdata_json["flags"])};")
 ctx.eval(r"""
 var f = {};
+// ==========JavaScript配置项==========（建议保持默认）
 this["IsTrial"] = false;  // 是否为体验版
 this["checkAnyClear"] = true;  // 是否已通关任意一条支线
 this["checkIN"] = true;  // H场景选项：中出
 this["checkOUT"] = true;  // H场景选项：外射
 this["checkMOUTH"] = true;  // H场景选项：口射
 this["checkFACE"] = true;  // H场景选项：颜射
+// 若启用R18内容，则 中出/外射（和 口射/颜射）不可以同时禁用，否则无法选择选项造成卡死
+// ===================================
 function initialize() {
     Object.keys(flags).forEach(key => this[key] = 0);
 }
@@ -57,14 +69,10 @@ function SetBranchFlags(varName, value) {
     UpdateBranchFlags();
 }
 function CheckBranchFlags(expr) {
-    try {
-        // js强兼tjs语法
-        expr = " " + expr;
-        expr = expr.replace(/ \./g, " f.");
-        return !!eval(expr);
-    } catch (e) {
-        return false;
-    }
+    // js强兼tjs语法
+    expr = " " + expr;
+    expr = expr.replace(/ \./g, " f.");
+    return !!eval(expr);
 }
 initialize();
 finalize();
@@ -78,6 +86,8 @@ function checkAdult() {{
 storage = head_scn
 target = head_label
 
+output_txt = open("output.txt", mode="w", encoding="UTF-8")
+chapter_count = 0
 while current_scn:
     print()
     if current_scn == "start.ks":
@@ -88,7 +98,9 @@ while current_scn:
         loaded_json = json.load(file)
         print(f"读取scenes：{current_scn} 成功")
         print(f"\tname: {loaded_json["name"]}")
-        input("[DEBUG]回车继续")
+        chapter_count += 1
+        output_txt.write(f"【第{chapter_count}章】\n")
+        # input("[DEBUG]回车继续")
         assert storage == loaded_json["name"]
         print("————————————————————")
         scenes_map = {}
@@ -161,6 +173,7 @@ while current_scn:
                     for text in scene["texts"]:
                         speaker_name = text[0]
                         dialogue_multi_lang = text[1]
+                        output_language_id = 0
                         print()
                         print(f"原始说话人：{speaker_name}")
                         print(f"[日文]{dialogue_multi_lang[0][0]}: {dialogue_multi_lang[0][1]}")
@@ -170,7 +183,14 @@ while current_scn:
                                 dialogue_text = dialogue_multi_lang[index][1]
                                 # text_length = dialogue_multi_lang[index][2]
                                 print(f"[{lang}]{speaker_alias}: {dialogue_text}")
-                        if not DEBUG_SKIP:
+                            output_language_id = dialogue_language_id
+
+                        output_speaker_name = dialogue_multi_lang[output_language_id][0] or speaker_name
+                        output_dialogue_text = dialogue_multi_lang[output_language_id][1]
+                        output_speaker_prefix = f"【{output_speaker_name}】" if speaker_name else ""
+                        output_txt.write(f"{output_speaker_prefix}{output_dialogue_text}\n")
+
+                        if not skip_texts:
                             input("按回车键继续：")
                 else:
                     print(f"模式：next")
@@ -248,3 +268,6 @@ while current_scn:
                 print("storage发生变化，准备读取下一个scenes...")
                 current_scn = storage
                 break
+        output_txt.write("\n\n\n\n")
+
+output_txt.close()
