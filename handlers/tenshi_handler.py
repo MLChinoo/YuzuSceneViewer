@@ -11,7 +11,7 @@ from utils.pdf_builder import build_pdf
 from utils import language_map
 
 
-@registry(name="tenshi", description="天使嚣嚣 Hikari Field版", config_class=TenshiConfig)
+@registry(name="tenshi", description="天使☆嚣嚣 RE-BOOT! Hikari Field版", config_class=TenshiConfig)
 class TenshiHandler(BaseHandler):
     def _handle(self, config: TenshiConfig):
         ctx = MiniRacer()
@@ -79,6 +79,7 @@ class TenshiHandler(BaseHandler):
             print()
             if current_scn == "start.ks":
                 print("到达线路结尾，线路结束")
+                print()
                 break
             print(f"准备读取scenes：{current_scn} ...")
             with open(os.path.join(config.root_dir, f"{current_scn}.json"), mode="r", encoding="UTF-8") as file:
@@ -106,10 +107,11 @@ class TenshiHandler(BaseHandler):
                     print(f"\tlabel: {scene["label"]}（应与上一个target一致）")
                     print(f"\ttitle: {scene["title"]}")
                     print()
-                    print("当前所有flag加点：")
-                    for flagkey in flagkeys:
-                        print(f"\t{flagkey}: {ctx.eval(flagkey)}")
-                    print()
+                    if not config.skip_flags:
+                        print("当前所有flag加点：")
+                        for flagkey in flagkeys:
+                            print(f"\t{flagkey}: {ctx.eval(flagkey)}")
+                        print()
                     assert scene["label"] == target
 
                     if "selects" in scene.keys():  # 当前scene含有选择块
@@ -160,25 +162,23 @@ class TenshiHandler(BaseHandler):
                             for text in scene["texts"]:
                                 speaker_name = text[0]
                                 dialogue_multi_lang = text[1]
-                                output_language_id = 0
-                                print()
-                                print(f"原始说话人：{speaker_name}")
-                                print(f"[日文]{dialogue_multi_lang[0][0]}: {dialogue_multi_lang[0][1]}")
-                                if len(dialogue_multi_lang) > 1:  # 日文原版或国际中文版的end_of_trial部分无多语言
-                                    for index, lang in enumerate(("英文", "简中", "繁中"), start=1):
-                                        speaker_alias = dialogue_multi_lang[index][0]
-                                        dialogue_text = dialogue_multi_lang[index][1]
-                                        # text_length = dialogue_multi_lang[index][2]
-                                        print(f"[{lang}]{speaker_alias}: {dialogue_text}")
-                                    output_language_id = config.dialogue_language_id
-
+                                output_language_id = config.dialogue_language_id if len(dialogue_multi_lang) > 1 else 0
                                 output_speaker_name = dialogue_multi_lang[output_language_id][0] or speaker_name
                                 output_dialogue_text = dialogue_multi_lang[output_language_id][1]
                                 output_speaker_prefix = f"【{output_speaker_name}】" if speaker_name else ""
                                 output_txt.write(f"{output_speaker_prefix}{output_dialogue_text}\n")
-
-                                if not config.skip_texts:
-                                    input("按回车键继续：")
+                                if not config.skip_text:
+                                    print()
+                                    print(f"原始说话人：{speaker_name}")
+                                    print(f"[日文]{dialogue_multi_lang[0][0]}: {dialogue_multi_lang[0][1]}")
+                                    if len(dialogue_multi_lang) > 1:  # 日文原版或国际中文版的end_of_trial部分无多语言
+                                        for index, lang in enumerate(("英文", "简中", "繁中"), start=1):
+                                            speaker_alias = dialogue_multi_lang[index][0]
+                                            dialogue_text = dialogue_multi_lang[index][1]
+                                            # text_length = dialogue_multi_lang[index][2]
+                                            print(f"[{lang}]{speaker_alias}: {dialogue_text}")
+                                    if not config.skip_confirm:
+                                        input("按回车键继续：")
                         else:
                             print(f"模式：next")
                         print()
@@ -261,4 +261,5 @@ class TenshiHandler(BaseHandler):
         build_pdf(raw_text=output_txt.read(),
                   language=language_map[config.dialogue_language_id],
                   outfile=config.output_pdf_filepath)
+        print("成功生成pdf.")
         output_txt.close()

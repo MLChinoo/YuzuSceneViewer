@@ -1,54 +1,39 @@
 import json
 import os
 import traceback
+import utils.parser
 
 from py_mini_racer import MiniRacer
 
-from handlers import registry
 from configs.senren_config import SenrenConfig
+from handlers import BaseHandler, registry
+from utils.pdf_builder import build_pdf
+from utils import language_map
 
 
-@registry(name="senren", description="千恋万花 Steam版", default_config=SenrenConfig())
-class SenrenHandler:
-    root_dir = r"C:\Users\MLChinoo\Desktop\senren_adult_scns"
-    DEBUG_SKIP = True
-
-    head_scn = "001・アーサー王ver1.07.ks"
-    head_label = "*com_part_1"
-    current_scn = head_scn
-    def _handle(self):
+@registry(name="senren", description="千恋＊万花 Steam版", config_class=SenrenConfig)
+class SenrenHandler(BaseHandler):
+    def _handle(self, config: SenrenConfig):
         ctx = MiniRacer()
-        ctx.eval("""
-        var flags = {
-            "koh": [
-                ["s507*sub_part_7_sel", 1, 1]
-            ],
-            "len": [
-                ["s010*com_part_10_sel", 1, 1],
-                ["s010*010_02A_sel", 2, 1]
-            ],
-            "mak": [
-                ["s006*com_part_6_sel", 2, 1],
-                ["s010*010_01com_sel", 2, 1]
-            ],
-            "mur": [
-                ["s010*010_01com_sel", 3, 1],
-                ["s010*010_02com_sel", 2, 1]
-            ],
-            "rok": [
-                ["s507*sub_part_7_sel", 2, 1]
-            ],
-            "sub": [
-                ["s001*com_part_1_sel", 1, 1],
-                ["s012*com_part_12_sel", 2, 1]
-            ],
-            "yos": [
-                ["s010*010_02A_sel", 1, 1],
-                ["s014*com_part_14_sel", 1, 1]
-            ]
-        };
+        with open(config.scnchartdata_filepath, mode="r", encoding="UTF-16") as file:
+            scnchartdata_json = json.loads(utils.parser.scnchartdata_tjs_to_json(file.read()))
+            flagkeys = scnchartdata_json["flagkeys"]
+            assert flagkeys == list(scnchartdata_json["flags"].keys())
+            ctx.eval(f"var flags = {json.dumps(scnchartdata_json["flags"])};")
+        ctx.eval(f'this["checkAnyClear"] = {str(config.check_any_clear).lower()};')
+        ctx.eval(f'this["checkIN"] = {str(config.check_in).lower() if config.adult_enabled else "false"};')
+        ctx.eval(f'this["checkOUT"] = {str(config.check_out).lower() if config.adult_enabled else "false"};')
+        ctx.eval(f'this["checkMOUTH"] = {str(config.check_mouth).lower() if config.adult_enabled else "false"};')
+        ctx.eval(f'this["checkFACE"] = {str(config.check_face).lower() if config.adult_enabled else "false"};')
+        ctx.eval(r"""
+        var f = {};
         function initialize() {
             Object.keys(flags).forEach(key => this[key] = 0);
+        }
+        function finalize() {
+            Object.keys(this).forEach(k => {
+                f[k] = this[k];
+            });
         }
         function UpdateBranchFlags() {
             initialize();
@@ -64,36 +49,42 @@ class SenrenHandler:
                     }
                 }
             }
+            finalize();
         }
         function SetBranchFlags(varName, value) {
             this[varName] = value;
             UpdateBranchFlags();
         }
         function CheckBranchFlags(expr) {
-            try {
-                var cleanExpr = expr.split("&&")[0].split("||")[0].trim();
-                return !!eval(cleanExpr);
-            } catch (e) {
-                return false;
-            }
+            // js强兼tjs语法
+            expr = " " + expr;
+            expr = expr.replace(/ \./g, " f.");
+            return !!eval(expr);
         }
         initialize();
+        finalize();
         """)
 
-        storage = head_scn
-        target = head_label
+        storage = config.head_scn
+        target = config.head_label
 
+        current_scn = config.head_scn
+        output_txt = open(config.output_txt_filepath, mode="w+", encoding="UTF-8")
+        chapter_count = 0
         while current_scn:
             print()
             if current_scn == "start.ks":
                 print("到达线路结尾，线路结束")
+                print()
                 break
             print(f"准备读取scenes：{current_scn} ...")
-            with open(os.path.join(root_dir, f"{current_scn}.json"), mode="r", encoding="UTF-8") as file:
+            with open(os.path.join(config.root_dir, f"{current_scn}.json"), mode="r", encoding="UTF-8") as file:
                 loaded_json = json.load(file)
                 print(f"读取scenes：{current_scn} 成功")
-                print(f"name: {loaded_json["name"]}")
-                input("[DEBUG]回车继续")
+                print(f"\tname: {loaded_json["name"]}")
+                chapter_count += 1
+                output_txt.write(f"【第{chapter_count}章】开始\n")
+                # input("[DEBUG]回车继续")
                 assert storage == loaded_json["name"]
                 print("————————————————————")
                 scenes_map = {}
@@ -108,20 +99,16 @@ class SenrenHandler:
                 while True:
                     scene = scenes_map[target]
                     print("当前scene：")
-                    print(f"firstLine: {scene["firstLine"]}")
-                    print(f"label: {scene["label"]}（应与上一个target一致）")
-                    print(f"title: {scene["title"]}")
+                    print(f"\tfirstLine: {scene["firstLine"]}")
+                    print(f"\tlabel: {scene["label"]}（应与上一个target一致）")
+                    print(f"\ttitle: {scene["title"]}")
                     print()
-                    print(f"芳乃: {ctx.eval("yos")}")
-                    print(f"茉子: {ctx.eval("mak")}")
-                    print(f"丛雨: {ctx.eval("mur")}")
-                    print(f"蕾娜: {ctx.eval("len")}")
-                    print(f"芦花: {ctx.eval("rok")}")
-                    print(f"小春: {ctx.eval("koh")}")
-                    print(f"芦花小春共用线: {ctx.eval("sub")}")
-                    print()
+                    if not config.skip_flags:
+                        print("当前所有flag加点：")
+                        for flagkey in flagkeys:
+                            print(f"\t{flagkey}: {ctx.eval(flagkey)}")
+                        print()
                     assert scene["label"] == target
-                    # assert ("selects" in scene.keys()) ^ ("nexts" in scene.keys())  # 假定texts和selects不会同时存在，texts存在时nexts也一定存在
 
                     if "selects" in scene.keys():  # 当前scene含有选择块
                         print(f"模式：select")
@@ -130,18 +117,24 @@ class SenrenHandler:
                             selects_map[int(select_cached["selidx"])] = select_cached
                         valid_indexes = list(selects_map.keys())
                         valid_indexes.sort()
-                        valid_indexes = tuple(str(_) for _ in valid_indexes)
-                        for index in valid_indexes:
+                        valid_indexes = list(str(_) for _ in valid_indexes)
+                        for index in valid_indexes.copy():
                             select = selects_map[index := int(index)]
-                            print(f"({index}) 第{index}个选项：")
+                            if "eval" in select.keys() and not ctx.eval(select["eval"]):
+                                valid_indexes.remove(str(index))
+                                print(f"(X) 第{index}个选项【eval不成立，无法选择】：")
+                            else:
+                                print(f"({index}) 第{index}个选项：")
                             print(f"\t[日文]{select["text"]}")
                             for index_lang, lang in enumerate(("英文", "简中", "繁中"), start=1):
                                 print(f"\t[{lang}]{select["language"][index_lang]["text"]}")
                             print(f"\ttag: {select["tag"]}")
+                            if "eval" in select.keys():
+                                print(f"\teval: {select["eval"]}")
                             print(f"\texp: {select["exp"]}")
                             print(f"\tstorage: {select["storage"]}")
                             print(f"\ttarget: {select["target"]}")
-                        selected_id = ""
+                        selected_id = "0d000721"
                         while selected_id not in valid_indexes :
                             selected_id = input("输入选项序号，按回车键确定：")
                         selected = scene["selects"][int(selected_id)]
@@ -157,27 +150,40 @@ class SenrenHandler:
                             storage = selected["storage"]
                             target = selected["target"]
 
-                    elif "nexts" in scene.keys():  # 当前scene含有文本块  # 除选择scene外，nexts一定存在，否则原游戏的场景无法继续
+                    elif "nexts" in scene.keys():  # 当前scene含有文本块
                         if "texts" in scene.keys():
                             print(f"模式：text")
                             for text in scene["texts"]:
                                 speaker_name = text[0]
-                                # _ = text[1]
                                 dialogue_multi_lang = text[2]
-                                print()
-                                print(f"原始说话人：{speaker_name}")
-                                for index, lang in enumerate(("日文", "英文", "简中", "繁中")):
-                                    speaker_alias = dialogue_multi_lang[index][0]
-                                    dialogue_text = dialogue_multi_lang[index][1]
-                                    print(f"[{lang}]{speaker_alias}: {dialogue_text}")
-                                if not DEBUG_SKIP:
-                                    input("按回车键继续：")
+                                output_language_id = config.dialogue_language_id if len(dialogue_multi_lang) > 1 else 0
+                                output_speaker_name = dialogue_multi_lang[output_language_id][0] or speaker_name
+                                output_dialogue_text = dialogue_multi_lang[output_language_id][1]
+                                output_speaker_prefix = f"【{output_speaker_name}】" if speaker_name else ""
+                                output_txt.write(f"{output_speaker_prefix}{output_dialogue_text}\n")
+                                if not config.skip_text:
+                                    print()
+                                    print(f"原始说话人：{speaker_name}")
+                                    print(f"[日文]{dialogue_multi_lang[0][0]}: {dialogue_multi_lang[0][1]}")
+                                    if len(dialogue_multi_lang) > 1:
+                                        for index, lang in enumerate(("英文", "简中", "繁中"), start=1):
+                                            speaker_alias = dialogue_multi_lang[index][0]
+                                            dialogue_text = dialogue_multi_lang[index][1]
+                                            print(f"[{lang}]{speaker_alias}: {dialogue_text}")
+                                    if not config.skip_confirm:
+                                        input("按回车键继续：")
                         else:
                             print(f"模式：next")
+                        print()
 
                         nexts_map = {}
                         for next_cached in scene["nexts"]:
-                            signature = f"{next_cached.get("eval")}|{next_cached.get("storage")}|{next_cached.get("target")}|{next_cached.get("type")}"
+                            signature = utils.generate_next_signature(
+                                eval=next_cached.get("eval"),
+                                storage=next_cached.get("storage"),
+                                target=next_cached.get("target"),
+                                type=next_cached.get("type")
+                            )
                             nexts_map[signature] = next_cached
                         nexts_eval = []
                         nexts_non_eval = []
@@ -185,30 +191,68 @@ class SenrenHandler:
                             if "eval" in next_cached.keys():
                                 nexts_eval.append(next_cached)
                             else:
+                                if config.adult_enabled:
+                                    x_signature = utils.generate_next_signature(
+                                        eval=next_cached.get("eval"),
+                                        storage="x_" + next_cached.get("storage"),
+                                        target=next_cached.get("target"),
+                                        type=next_cached.get("type")
+                                    )
+                                    if x_signature in nexts_map.keys():
+                                        continue
+                                elif next_cached["storage"].startswith("x_"):
+                                    non_x_signature = utils.generate_next_signature(
+                                        eval=next_cached.get("eval"),
+                                        storage=next_cached.get("storage").removeprefix("x_"),
+                                        target=next_cached.get("target"),
+                                        type=next_cached.get("type")
+                                    )
+                                    if non_x_signature in nexts_map.keys():
+                                        continue
                                 nexts_non_eval.append(next_cached)
                         assert len(nexts_non_eval) == 1
                         for next_eval in nexts_eval:
+                            print(f"有条件判断eval：{next_eval["eval"]}\t", end="")
                             if ctx.eval(next_eval["eval"]):
                                 storage = next_eval["storage"]
                                 target = next_eval["target"]
+                                print("成立√")
+                                print(f"\tstorage: {storage}")
+                                print(f"\ttarget: {target}")
                                 break
+                            else:
+                                print("不成立×")
                         else:
                             storage = nexts_non_eval[0]["storage"]
                             if "target" in nexts_non_eval[0].keys():
                                 target = nexts_non_eval[0]["target"]
                             else:
                                 target = None
+                            print("无条件判断：")
+                            print(f"\tstorage: {storage}")
+                            print(f"\ttarget: {target}")
 
                     else:
                         raise RuntimeError("?")
 
                     assert storage is not None
                     print()
-                    print("下一个scene：")
-                    print(f"storage: {storage}")
-                    print(f"target: {target}")
+                    print("下一个scene已确定：")
+                    print(f"\tstorage: {storage}")
+                    print(f"\ttarget: {target}")
+                    if storage.strip() == "":
+                        print(f"storage为空，回退至当前scenes：{current_scn}")
+                        storage = current_scn
                     print("————————————————————")
                     if storage != current_scn:
                         print("storage发生变化，准备读取下一个scenes...")
                         current_scn = storage
                         break
+                output_txt.write(f"【第{chapter_count}章】结束\n\n\n\n")
+        output_txt.seek(0)
+        print(f"正在生成pdf：{config.output_pdf_filepath}，耗时可能较长......")
+        build_pdf(raw_text=output_txt.read(),
+                  language=language_map[config.dialogue_language_id],
+                  outfile=config.output_pdf_filepath)
+        print("成功生成pdf.")
+        output_txt.close()
